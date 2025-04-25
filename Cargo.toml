@@ -1,0 +1,13 @@
+[package]
+name = "infini-core-rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bindgen = "0.71.1"
+digit-layout = "0.3.0"
+
+[build-dependencies]
+search-infini-core = { path = "./search-infini-core" }
+build-script-cfg = "0.1.0"
+bindgen = "0.71.1"
