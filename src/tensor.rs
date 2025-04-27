@@ -1,7 +1,8 @@
-use crate::{bindings::infiniopTensorDescriptor_t, infiniDtype_t, AsRaw};
+use crate::{AsRaw, bindings::infiniopTensorDescriptor_t, infiniDtype_t};
 use digit_layout::{DigitLayout, types};
 use std::ptr::null_mut;
 
+/// 一个 InfiniCore 张量描述符。
 #[repr(transparent)]
 pub struct Tensor(infiniopTensorDescriptor_t);
 
@@ -24,6 +25,20 @@ fn data_layout(dt: DigitLayout) -> infiniDtype_t {
 }
 
 impl Tensor {
+    /// 创建一个新的张量描述符。
+    ///
+    /// # Arguments
+    ///
+    /// * `dt`: 张量的数据类型，使用 `digit_layout::DigitLayout` 表示。
+    /// * `shape`: 张量的形状（维度大小），一个包含 `usize` 的迭代器。
+    /// * `strides`: 张量的步长（以字节为单位），一个包含 `isize` 的迭代器。
+    ///   步长表示在每个维度上移动一个元素需要跳过的字节数。
+    ///
+    /// # Panics
+    ///
+    /// * 如果 `shape` 和 `strides` 的维度数量不匹配。
+    /// * 如果 `dt` 是不支持的数据类型（由 `data_layout` 函数 panic）。
+    /// * 如果底层的 `infiniopCreateTensorDescriptor` 调用失败（由 `infini!` 宏 panic）。
     pub fn new(
         dt: DigitLayout,
         shape: impl IntoIterator<Item = usize>,

@@ -1,4 +1,4 @@
-// #![deny(warnings)]
+#![deny(warnings)]
 
 use std::{
     env::{var, var_os},
@@ -34,11 +34,7 @@ fn find_header_lib(header: &str, lib: &str) -> Option<PathBuf> {
             break;
         }
     }
-    if contains {
-        Some(root)
-    } else {
-        None
-    }
+    if contains { Some(root) } else { None }
 }
 
 fn find_env(key: &str) -> Option<String> {

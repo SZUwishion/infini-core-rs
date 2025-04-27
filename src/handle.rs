@@ -1,17 +1,22 @@
-use crate::{
-    AsRaw,
-    bindings::infiniopHandle_t,
-};
-use std::{ffi::c_int, ptr::null_mut};
+use crate::{AsRaw, bindings::infiniopHandle_t};
+use std::ptr::null_mut;
 
+/// 一个 InfiniCore 操作句柄 (`infiniopHandle_t`)。
 #[repr(transparent)]
 pub struct Handle(infiniopHandle_t);
 
 impl Handle {
+    /// 创建一个新的 InfiniCore 操作句柄。
     pub fn new() -> Self {
         let mut ptr = null_mut();
         infini!(infiniopCreateHandle(&mut ptr));
         Self(ptr)
+    }
+}
+
+impl Default for Handle {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

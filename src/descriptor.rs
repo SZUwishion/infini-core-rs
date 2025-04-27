@@ -1,12 +1,17 @@
-use crate::{bindings::infiniStatus_t, AsRaw};
+use crate::{AsRaw, bindings::infiniStatus_t};
 use std::ptr::null_mut;
 
+/// 一个通用的描述符包装器，用于管理底层 C 库分配的资源。
 pub struct Descriptor<T> {
     ptr: *mut T,
     destroyer: unsafe extern "C" fn(*mut T) -> infiniStatus_t,
 }
 
 impl<T> Descriptor<T> {
+    /// 创建一个新的 `Descriptor` 实例。
+    ///
+    /// 这个函数接收一个闭包 `f`，该闭包负责调用 C API 来创建资源并将指针写入提供的 `&mut *mut T`。
+    /// 以及一个 `destroyer` 函数指针，该函数将在 `Descriptor` 被 `drop` 时用于释放资源。
     pub fn new(
         f: impl FnOnce(&mut *mut T),
         destroyer: unsafe extern "C" fn(*mut T) -> infiniStatus_t,
