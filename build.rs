@@ -1,6 +1,6 @@
 fn main() {
     use build_script_cfg::Cfg;
-    use search_infini_core::{find_infini_rt, find_infini_op};
+    use search_infini_core::{find_infini_op, find_infini_rt};
     use std::{env, path::PathBuf};
 
     let cfg = Cfg::new("infini");
