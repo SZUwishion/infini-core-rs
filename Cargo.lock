@@ -107,12 +107,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "infini-core-rs"
+name = "infinicore"
 version = "0.1.0"
 dependencies = [
  "bindgen",
  "build-script-cfg",
  "digit-layout",
+ "libc",
  "search-infini-core",
 ]
 

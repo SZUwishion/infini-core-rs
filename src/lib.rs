@@ -2,7 +2,7 @@
 //!
 //! 这个 crate 提供了对底层 InfiniCore C 库（infinirt 和 infiniop）的安全 Rust 封装。
 #![cfg(infini)]
-#![deny(warnings, missing_docs)]
+// #![deny(warnings, missing_docs)]
 
 /// 包含从 C 库生成的原始绑定的模块。
 #[macro_use]

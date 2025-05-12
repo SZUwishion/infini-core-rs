@@ -4,16 +4,32 @@ fn main() {
     use std::{env, path::PathBuf};
 
     let cfg = Cfg::new("infini");
-    let Some(root) = find_infini_rt() else {
-        return;
+    
+    // 使用环境变量中的INFINI_ROOT
+    let root = match env::var("INFINI_ROOT") {
+        Ok(path) => PathBuf::from(path),
+        Err(_) => {
+            // 如果环境变量不存在，尝试使用默认路径
+            let Some(default_root) = find_infini_rt() else {
+                panic!("INFINI_ROOT not set and could not find infinirt library");
+            };
+            default_root
+        }
     };
 
     let include = root.join("include");
     let lib = root.join("lib");
 
     cfg.define();
+    
+    // 添加库搜索路径
     println!("cargo:rustc-link-search={}", lib.display());
+    
+    // 链接infinirt和infiniop库
     println!("cargo:rustc-link-lib=infinirt");
+    println!("cargo:rustc-link-lib=infiniop");
+    
+    // 在非Windows系统上添加rpath
     if !cfg!(windows) {
         println!("cargo::rustc-link-arg=-Wl,-rpath,{}", lib.display());
     }

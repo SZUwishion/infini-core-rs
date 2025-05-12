@@ -1,11 +1,12 @@
 [package]
-name = "infini-core-rs"
+name = "infinicore"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 bindgen = "0.71.1"
 digit-layout = "0.3.0"
+libc = "0.2"
 
 [build-dependencies]
 search-infini-core = { path = "./search-infini-core" }
