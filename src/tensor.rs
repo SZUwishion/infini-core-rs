@@ -1,5 +1,5 @@
 use crate::{AsRaw, bindings::infiniopTensorDescriptor_t, infiniDtype_t};
-pub use digit_layout::{DigitLayout, types};
+use digit_layout::{DigitLayout, types};
 use std::ptr::null_mut;
 
 /// 一个 InfiniCore 张量描述符。
