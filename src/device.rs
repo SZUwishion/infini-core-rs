@@ -1,5 +1,10 @@
 use crate::infiniDevice_t;
 
+pub enum DeviceType {
+    CPU,
+    CUDA,
+}
+
 /// 一个 InfiniCore 计算设备。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Device {
@@ -10,6 +15,29 @@ pub struct Device {
 }
 
 impl Device {
+    pub fn default() -> Self {
+        Self {
+            ty: infiniDevice_t::INFINI_DEVICE_CPU,
+            id: 0,
+        }
+    }
+
+    pub fn set(&mut self, ty: DeviceType, id: i32){
+        self.ty = match ty {
+            DeviceType::CPU => infiniDevice_t::INFINI_DEVICE_CPU,
+            DeviceType::CUDA => infiniDevice_t::INFINI_DEVICE_NVIDIA,
+        };
+        self.id = id;
+    }
+
+    pub fn get(&self) -> DeviceType {
+        match self.ty {
+            infiniDevice_t::INFINI_DEVICE_CPU => DeviceType::CPU,
+            infiniDevice_t::INFINI_DEVICE_NVIDIA => DeviceType::CUDA,
+            _ => panic!("Invalid device type"),
+        }
+    }
+
     /// 同步当前设备
     #[inline]
     pub fn synchronize(&self) {

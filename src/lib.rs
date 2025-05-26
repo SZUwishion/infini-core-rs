@@ -43,7 +43,7 @@ mod event;
 mod memory;
 mod stream;
 
-pub use device::Device;
+pub use device::{Device, DeviceType};
 pub use event::Event;
 pub use memory::{DevBlob, DevByte, HostBlob};
 pub use stream::Stream;

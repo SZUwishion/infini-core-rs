@@ -4,8 +4,8 @@ use std::{
     mem::forget,
     ops::{Deref, DerefMut},
     os::raw::c_void,
-    ptr::{NonNull, null_mut},
-    slice::{from_raw_parts, from_raw_parts_mut},
+    ptr::{null_mut, NonNull},
+    slice::{from_raw_parts, from_raw_parts_mut}, sync::Arc,
 };
 
 /// 一个标记类型，表示设备内存中的一个字节。
@@ -106,9 +106,36 @@ fn memcpy_ptr<T, U>(dst: &mut [T], src: &[U]) -> (*mut c_void, *const c_void, us
 /// 负责管理设备内存的分配和释放。
 /// 通过 `Deref` 和 `DerefMut` 提供对内存的切片访问（作为 `[DevByte]`）。
 pub struct DevBlob {
+    manager: Arc<DevMemManager>,
     ptr: NonNull<DevByte>,
     len: usize,
 }
+
+impl DevBlob {
+    pub fn slice(&self, start: usize, length: usize) -> DevBlob {
+        DevBlob {
+            manager: self.manager.clone(),
+            ptr: unsafe { self.ptr.add(start) },
+            len: length,
+        }
+    }
+}
+
+pub struct DevMemManager {
+    ptr: NonNull<DevByte>,
+    len: usize,
+}
+
+impl Drop for DevMemManager {
+    fn drop(&mut self) {
+        if self.len == 0 {
+            return;
+        }
+
+        infini!(infinirtFree(self.ptr.as_ptr().cast(),))
+    }
+}
+
 
 impl Device {
     /// 在设备上同步分配指定类型的内存。
@@ -117,6 +144,7 @@ impl Device {
         let len = layout.size();
 
         DevBlob {
+            manager: Arc::new(DevMemManager { ptr: NonNull::dangling(), len: 0 }),
             ptr: if len == 0 {
                 NonNull::dangling()
             } else {
@@ -132,22 +160,24 @@ impl Device {
     pub fn from_host<T: Copy>(&self, data: &[T]) -> DevBlob {
         let src = data.as_ptr().cast();
         let len = size_of_val(data);
+        let ptr = if len == 0 {
+            NonNull::dangling()
+        } else {
+            let mut ptr = null_mut();
+            infini!(infinirtMalloc(&mut ptr, len));
+            infini!(infinirtMemcpy(
+                ptr,
+                src,
+                len,
+                infinirtMemcpyKind_t::INFINIRT_MEMCPY_H2D
+            ));
+            NonNull::new(ptr).unwrap().cast()
+        };
 
         DevBlob {
-            ptr: if len == 0 {
-                NonNull::dangling()
-            } else {
-                let mut ptr = null_mut();
-                infini!(infinirtMalloc(&mut ptr, len));
-                infini!(infinirtMemcpy(
-                    ptr,
-                    src,
-                    len,
-                    infinirtMemcpyKind_t::INFINIRT_MEMCPY_H2D
-                ));
-                NonNull::new(ptr).unwrap().cast()
-            },
+            ptr,
             len,
+            manager: Arc::new(DevMemManager { ptr, len }),
         }
     }
 }
@@ -159,16 +189,17 @@ impl Stream {
     pub fn malloc<T: Copy>(&self, len: usize) -> DevBlob {
         let layout = Layout::array::<T>(len).unwrap();
         let len = layout.size();
+        let ptr = if len == 0 {
+            NonNull::dangling()
+        } else {
+            let mut ptr = null_mut();
+            infini!(infinirtMallocAsync(&mut ptr, len, self.as_raw()));
+            NonNull::new(ptr).unwrap().cast()
+        };
 
         DevBlob {
-            ptr: if len == 0 {
-                NonNull::dangling()
-            } else {
-                let raw = unsafe { self.as_raw() };
-                let mut ptr = null_mut();
-                infini!(infinirtMallocAsync(&mut ptr, len, raw));
-                NonNull::new(ptr).unwrap().cast()
-            },
+            ptr,
+            manager: Arc::new(DevMemManager { ptr, len }),
             len,
         }
     }
@@ -179,23 +210,25 @@ impl Stream {
     pub fn from_host<T: Copy>(&self, data: &[T]) -> DevBlob {
         let src = data.as_ptr().cast();
         let len = size_of_val(data);
+        let ptr = if len == 0 {
+            NonNull::dangling()
+        } else {
+            let raw = unsafe { self.as_raw() };
+            let mut ptr = null_mut();
+            infini!(infinirtMallocAsync(&mut ptr, len, raw));
+            infini!(infinirtMemcpyAsync(
+                ptr,
+                src,
+                len,
+                infinirtMemcpyKind_t::INFINIRT_MEMCPY_H2D,
+                raw
+            ));
+            NonNull::new(ptr).unwrap().cast()
+        };
 
         DevBlob {
-            ptr: if len == 0 {
-                NonNull::dangling()
-            } else {
-                let raw = unsafe { self.as_raw() };
-                let mut ptr = null_mut();
-                infini!(infinirtMallocAsync(&mut ptr, len, raw));
-                infini!(infinirtMemcpyAsync(
-                    ptr,
-                    src,
-                    len,
-                    infinirtMemcpyKind_t::INFINIRT_MEMCPY_H2D,
-                    raw
-                ));
-                NonNull::new(ptr).unwrap().cast()
-            },
+            manager: Arc::new(DevMemManager { ptr, len }),
+            ptr,
             len,
         }
     }
@@ -213,15 +246,6 @@ impl Stream {
     }
 }
 
-impl Drop for DevBlob {
-    fn drop(&mut self) {
-        if self.len == 0 {
-            return;
-        }
-
-        infini!(infinirtFree(self.ptr.as_ptr().cast(),))
-    }
-}
 
 unsafe impl Send for DevBlob {}
 unsafe impl Sync for DevBlob {}
