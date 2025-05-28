@@ -5,7 +5,7 @@ use std::{
     ops::{Deref, DerefMut},
     os::raw::c_void,
     ptr::{null_mut, NonNull},
-    slice::{from_raw_parts, from_raw_parts_mut}, sync::Arc,
+    slice::{from_raw_parts, from_raw_parts_mut},
 };
 
 /// 一个标记类型，表示设备内存中的一个字节。
@@ -106,32 +106,16 @@ fn memcpy_ptr<T, U>(dst: &mut [T], src: &[U]) -> (*mut c_void, *const c_void, us
 /// 负责管理设备内存的分配和释放。
 /// 通过 `Deref` 和 `DerefMut` 提供对内存的切片访问（作为 `[DevByte]`）。
 pub struct DevBlob {
-    manager: Arc<DevMemManager>,
     ptr: NonNull<DevByte>,
     len: usize,
 }
 
-impl DevBlob {
-    pub fn slice(&self, start: usize, length: usize) -> DevBlob {
-        DevBlob {
-            manager: self.manager.clone(),
-            ptr: unsafe { self.ptr.add(start) },
-            len: length,
-        }
-    }
-}
-
-pub struct DevMemManager {
-    ptr: NonNull<DevByte>,
-    len: usize,
-}
-
-impl Drop for DevMemManager {
+impl Drop for DevBlob {
     fn drop(&mut self) {
         if self.len == 0 {
             return;
         }
-
+        infini!(infinirtDeviceSynchronize());
         infini!(infinirtFree(self.ptr.as_ptr().cast(),))
     }
 }
@@ -142,16 +126,16 @@ impl Device {
     pub fn malloc<T: Copy>(&self, len: usize) -> DevBlob {
         let layout = Layout::array::<T>(len).unwrap();
         let len = layout.size();
+        let ptr = if len == 0 {
+            NonNull::dangling()
+        } else {
+            let mut ptr = null_mut();
+            infini!(infinirtMalloc(&mut ptr, len));
+            NonNull::new(ptr).unwrap().cast()
+        };
 
         DevBlob {
-            manager: Arc::new(DevMemManager { ptr: NonNull::dangling(), len: 0 }),
-            ptr: if len == 0 {
-                NonNull::dangling()
-            } else {
-                let mut ptr = null_mut();
-                infini!(infinirtMalloc(&mut ptr, len));
-                NonNull::new(ptr).unwrap().cast()
-            },
+            ptr,
             len,
         }
     }
@@ -177,7 +161,6 @@ impl Device {
         DevBlob {
             ptr,
             len,
-            manager: Arc::new(DevMemManager { ptr, len }),
         }
     }
 }
@@ -199,7 +182,6 @@ impl Stream {
 
         DevBlob {
             ptr,
-            manager: Arc::new(DevMemManager { ptr, len }),
             len,
         }
     }
@@ -227,7 +209,6 @@ impl Stream {
         };
 
         DevBlob {
-            manager: Arc::new(DevMemManager { ptr, len }),
             ptr,
             len,
         }
