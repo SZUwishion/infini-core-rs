@@ -1,5 +1,6 @@
 use crate::{AsRaw, Device, Stream};
 use std::{
+    sync::Arc,
     alloc::Layout,
     mem::forget,
     ops::{Deref, DerefMut},
@@ -106,17 +107,33 @@ fn memcpy_ptr<T, U>(dst: &mut [T], src: &[U]) -> (*mut c_void, *const c_void, us
 /// 负责管理设备内存的分配和释放。
 /// 通过 `Deref` 和 `DerefMut` 提供对内存的切片访问（作为 `[DevByte]`）。
 pub struct DevBlob {
+    manager: Arc<DevMemManager>,
     ptr: NonNull<DevByte>,
     len: usize,
 }
 
-impl Drop for DevBlob {
+pub struct DevMemManager {
+    ptr: NonNull<DevByte>,
+    len: usize,
+}
+
+impl Drop for DevMemManager {
     fn drop(&mut self) {
         if self.len == 0 {
             return;
         }
         infini!(infinirtDeviceSynchronize());
         infini!(infinirtFree(self.ptr.as_ptr().cast(),))
+    }
+}
+
+impl Clone for DevBlob {
+    fn clone(&self) -> Self {
+        DevBlob {
+            manager: self.manager.clone(),
+            ptr: self.ptr,
+            len: self.len,
+        }
     }
 }
 
@@ -135,7 +152,11 @@ impl Device {
         };
 
         DevBlob {
-            ptr,
+            manager: Arc::new(DevMemManager {
+                ptr: ptr,
+                len: len,
+            }),
+            ptr: ptr,
             len,
         }
     }
@@ -159,7 +180,11 @@ impl Device {
         };
 
         DevBlob {
-            ptr,
+            manager: Arc::new(DevMemManager {
+                ptr: ptr,
+                len: len,
+            }),
+            ptr: ptr,
             len,
         }
     }
@@ -181,7 +206,11 @@ impl Stream {
         };
 
         DevBlob {
-            ptr,
+            manager: Arc::new(DevMemManager {
+                ptr: ptr,
+                len: len,
+            }),
+            ptr: ptr,
             len,
         }
     }
@@ -209,7 +238,11 @@ impl Stream {
         };
 
         DevBlob {
-            ptr,
+            manager: Arc::new(DevMemManager {
+                ptr: ptr,
+                len: len,
+            }),
+            ptr: ptr,
             len,
         }
     }

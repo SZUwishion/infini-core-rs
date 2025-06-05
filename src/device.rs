@@ -1,5 +1,6 @@
 use crate::infiniDevice_t;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DeviceType {
     CPU,
     CUDA,
