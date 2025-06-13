@@ -19,12 +19,12 @@ impl Device {
     /// 在设备之间同步复制内存。
     #[inline]
     pub fn memcpy_d2d(&self, dst: &mut [DevByte], src: &[DevByte]) {
-        let (dst, src, len) = memcpy_ptr(dst, src);
-        if len > 0 {
+        let (dst, src, nbytes) = memcpy_ptr(dst, src);
+        if nbytes > 0 {
             infini!(infinirtMemcpy(
                 dst,
                 src,
-                len,
+                nbytes,
                 infinirtMemcpyKind_t::INFINIRT_MEMCPY_D2D
             ))
         }
@@ -33,12 +33,12 @@ impl Device {
     /// 将主机内存同步复制到设备内存。
     #[inline]
     pub fn memcpy_h2d<T: Copy>(&self, dst: &mut [DevByte], src: &[T]) {
-        let (dst, src, len) = memcpy_ptr(dst, src);
-        if len > 0 {
+        let (dst, src, nbytes) = memcpy_ptr(dst, src);
+        if nbytes > 0 {
             infini!(infinirtMemcpy(
                 dst,
                 src,
-                len,
+                nbytes,
                 infinirtMemcpyKind_t::INFINIRT_MEMCPY_H2D
             ))
         }
@@ -47,12 +47,12 @@ impl Device {
     /// 将设备内存同步复制到主机内存。
     #[inline]
     pub fn memcpy_d2h<T: Copy>(&self, dst: &mut [T], src: &[DevByte]) {
-        let (dst, src, len) = memcpy_ptr(dst, src);
-        if len > 0 {
+        let (dst, src, nbytes) = memcpy_ptr(dst, src);
+        if nbytes > 0 {
             infini!(infinirtMemcpy(
                 dst,
                 src,
-                len,
+                nbytes,
                 infinirtMemcpyKind_t::INFINIRT_MEMCPY_D2H
             ))
         }
@@ -65,12 +65,12 @@ impl Stream {
     /// 操作将在指定的流上排队。
     #[inline]
     pub fn memcpy_d2d(&self, dst: &mut [DevByte], src: &[DevByte]) {
-        let (dst, src, len) = memcpy_ptr(dst, src);
-        if len > 0 {
+        let (dst, src, nbytes) = memcpy_ptr(dst, src);
+        if nbytes > 0 {
             infini!(infinirtMemcpyAsync(
                 dst,
                 src,
-                len,
+                nbytes,
                 infinirtMemcpyKind_t::INFINIRT_MEMCPY_D2D,
                 self.as_raw()
             ))
@@ -82,13 +82,30 @@ impl Stream {
     /// 操作将在指定的流上排队。
     #[inline]
     pub fn memcpy_h2d<T: Copy>(&self, dst: &mut [DevByte], src: &[T]) {
-        let (dst, src, len) = memcpy_ptr(dst, src);
-        if len > 0 {
+        let (dst, src, nbytes) = memcpy_ptr(dst, src);
+        if nbytes > 0 {
             infini!(infinirtMemcpyAsync(
                 dst,
                 src,
-                len,
+                nbytes,
                 infinirtMemcpyKind_t::INFINIRT_MEMCPY_H2D,
+                self.as_raw()
+            ))
+        }
+    }
+
+    /// 将设备内存异步复制到主机内存。
+    ///
+    /// 操作将在指定的流上排队。
+    #[inline]
+    pub fn memcpy_d2h<T: Copy>(&self, dst: &mut [T], src: &[DevByte]) {
+        let (dst, src, nbytes) = memcpy_ptr(dst, src);
+        if nbytes > 0 {
+            infini!(infinirtMemcpyAsync(
+                dst,
+                src,
+                nbytes,
+                infinirtMemcpyKind_t::INFINIRT_MEMCPY_D2H,
                 self.as_raw()
             ))
         }
@@ -97,42 +114,39 @@ impl Stream {
 
 #[inline]
 fn memcpy_ptr<T, U>(dst: &mut [T], src: &[U]) -> (*mut c_void, *const c_void, usize) {
-    let len = size_of_val(dst);
-    assert_eq!(len, size_of_val(src));
-    (dst.as_mut_ptr().cast(), src.as_ptr().cast(), len)
+    let nbytes = size_of_val(dst);
+    assert_eq!(nbytes, size_of_val(src));
+    (dst.as_mut_ptr().cast(), src.as_ptr().cast(), nbytes)
 }
 
 /// 表示在设备上分配的一块内存区域（Blob）。
 ///
 /// 负责管理设备内存的分配和释放。
 /// 通过 `Deref` 和 `DerefMut` 提供对内存的切片访问（作为 `[DevByte]`）。
+#[derive(Clone)]
 pub struct DevBlob {
-    manager: Arc<DevMemManager>,
-    ptr: NonNull<DevByte>,
-    len: usize,
+    ptr: Arc<NonNull<DevByte>>,
+    offset: usize,
+    nbytes: usize,
 }
 
-pub struct DevMemManager {
-    ptr: NonNull<DevByte>,
-    len: usize,
-}
-
-impl Drop for DevMemManager {
-    fn drop(&mut self) {
-        if self.len == 0 {
-            return;
+impl DevBlob {
+    pub fn slice(&self, offset: usize, nbytes: usize) -> Self {
+        DevBlob {
+            ptr: self.ptr.clone(),
+            offset: offset,
+            nbytes: nbytes,
         }
-        infini!(infinirtDeviceSynchronize());
-        infini!(infinirtFree(self.ptr.as_ptr().cast(),))
     }
 }
 
-impl Clone for DevBlob {
-    fn clone(&self) -> Self {
-        DevBlob {
-            manager: self.manager.clone(),
-            ptr: self.ptr,
-            len: self.len,
+impl Drop for DevBlob {
+    fn drop(&mut self) {
+        if self.nbytes == 0 {
+            return;
+        }
+        if Arc::strong_count(&self.ptr) == 1 {
+            infini!(infinirtFree(self.ptr.as_ptr().cast(),))
         }
     }
 }
@@ -140,52 +154,44 @@ impl Clone for DevBlob {
 
 impl Device {
     /// 在设备上同步分配指定类型的内存。
-    pub fn malloc<T: Copy>(&self, len: usize) -> DevBlob {
-        let layout = Layout::array::<T>(len).unwrap();
-        let len = layout.size();
-        let ptr = if len == 0 {
+    pub fn malloc(&self, nbytes: usize) -> DevBlob {
+        let ptr = if nbytes == 0 {
             NonNull::dangling()
         } else {
             let mut ptr = null_mut();
-            infini!(infinirtMalloc(&mut ptr, len));
+            infini!(infinirtMalloc(&mut ptr, nbytes));
             NonNull::new(ptr).unwrap().cast()
         };
 
         DevBlob {
-            manager: Arc::new(DevMemManager {
-                ptr: ptr,
-                len: len,
-            }),
-            ptr: ptr,
-            len,
+            ptr: Arc::new(ptr),
+            offset: 0,
+            nbytes: nbytes,
         }
     }
 
     /// 从主机内存数据同步创建设备内存 Blob 并复制内容。
     pub fn from_host<T: Copy>(&self, data: &[T]) -> DevBlob {
         let src = data.as_ptr().cast();
-        let len = size_of_val(data);
-        let ptr = if len == 0 {
+        let nbytes = size_of_val(data);
+        let ptr = if nbytes == 0 {
             NonNull::dangling()
         } else {
             let mut ptr = null_mut();
-            infini!(infinirtMalloc(&mut ptr, len));
+            infini!(infinirtMalloc(&mut ptr, nbytes));
             infini!(infinirtMemcpy(
                 ptr,
                 src,
-                len,
+                nbytes,
                 infinirtMemcpyKind_t::INFINIRT_MEMCPY_H2D
             ));
             NonNull::new(ptr).unwrap().cast()
         };
 
         DevBlob {
-            manager: Arc::new(DevMemManager {
-                ptr: ptr,
-                len: len,
-            }),
-            ptr: ptr,
-            len,
+            ptr: Arc::new(ptr),
+            offset: 0,
+            nbytes: nbytes,
         }
     }
 }
@@ -194,24 +200,19 @@ impl Stream {
     /// 在设备上异步分配指定类型的内存。
     ///
     /// 分配操作将在指定的流上排队。
-    pub fn malloc<T: Copy>(&self, len: usize) -> DevBlob {
-        let layout = Layout::array::<T>(len).unwrap();
-        let len = layout.size();
-        let ptr = if len == 0 {
+    pub fn malloc(&self, nbytes: usize) -> DevBlob {
+        let ptr = if nbytes == 0 {
             NonNull::dangling()
         } else {
             let mut ptr = null_mut();
-            infini!(infinirtMallocAsync(&mut ptr, len, self.as_raw()));
+            infini!(infinirtMallocAsync(&mut ptr, nbytes, self.as_raw()));
             NonNull::new(ptr).unwrap().cast()
         };
 
         DevBlob {
-            manager: Arc::new(DevMemManager {
-                ptr: ptr,
-                len: len,
-            }),
-            ptr: ptr,
-            len,
+            ptr: Arc::new(ptr),
+            offset: 0,
+            nbytes: nbytes,
         }
     }
 
@@ -220,17 +221,17 @@ impl Stream {
     /// 分配和复制操作将在指定的流上排队。
     pub fn from_host<T: Copy>(&self, data: &[T]) -> DevBlob {
         let src = data.as_ptr().cast();
-        let len = size_of_val(data);
-        let ptr = if len == 0 {
+        let nbytes = size_of_val(data);
+        let ptr = if nbytes == 0 {
             NonNull::dangling()
         } else {
             let raw = unsafe { self.as_raw() };
             let mut ptr = null_mut();
-            infini!(infinirtMallocAsync(&mut ptr, len, raw));
+            infini!(infinirtMallocAsync(&mut ptr, nbytes, raw));
             infini!(infinirtMemcpyAsync(
                 ptr,
                 src,
-                len,
+                nbytes,
                 infinirtMemcpyKind_t::INFINIRT_MEMCPY_H2D,
                 raw
             ));
@@ -238,25 +239,24 @@ impl Stream {
         };
 
         DevBlob {
-            manager: Arc::new(DevMemManager {
-                ptr: ptr,
-                len: len,
-            }),
-            ptr: ptr,
-            len,
+            ptr: Arc::new(ptr),
+            offset: 0,
+            nbytes: nbytes,
         }
     }
 
     /// 在指定的流上异步释放设备内存 Blob。
     pub fn free(&self, blob: DevBlob) {
-        if blob.len == 0 {
+        if blob.nbytes == 0 {
             return;
         }
 
-        let &DevBlob { ptr, .. } = &blob;
+        let ptr = blob.ptr.clone();
         forget(blob);
 
-        infini!(infinirtFreeAsync(ptr.as_ptr().cast(), self.as_raw()))
+        if Arc::strong_count(&ptr) == 1 {
+            infini!(infinirtFreeAsync(ptr.as_ptr().cast(), self.as_raw()))
+        }
     }
 }
 
@@ -276,10 +276,10 @@ impl Deref for DevBlob {
     type Target = [DevByte];
     #[inline]
     fn deref(&self) -> &Self::Target {
-        if self.len == 0 {
+        if self.nbytes == 0 {
             &[]
         } else {
-            unsafe { from_raw_parts(self.ptr.as_ptr(), self.len) }
+            unsafe { from_raw_parts(self.ptr.as_ptr(), self.nbytes) }
         }
     }
 }
@@ -287,10 +287,10 @@ impl Deref for DevBlob {
 impl DerefMut for DevBlob {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        if self.len == 0 {
+        if self.nbytes == 0 {
             &mut []
         } else {
-            unsafe { from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+            unsafe { from_raw_parts_mut(self.ptr.as_ptr(), self.nbytes) }
         }
     }
 }
@@ -301,31 +301,31 @@ impl DerefMut for DevBlob {
 /// 通过 `Deref` 和 `DerefMut` 提供对内存的切片访问（作为 `[u8]`）。
 pub struct HostBlob {
     ptr: NonNull<u8>,
-    len: usize,
+    nbytes: usize,
 }
 
 impl Device {
     /// 在主机上同步分配指定类型的“固定”（pinned）或“主机映射”（host-mapped）内存。
-    pub fn malloc_host<T: Copy>(&self, len: usize) -> HostBlob {
-        let layout = Layout::array::<T>(len).unwrap();
-        let len = layout.size();
+    pub fn malloc_host<T: Copy>(&self, nbytes: usize) -> HostBlob {
+        let layout = Layout::array::<T>(nbytes).unwrap();
+        let nbytes = layout.size();
 
         HostBlob {
-            ptr: if len == 0 {
+            ptr: if nbytes == 0 {
                 NonNull::dangling()
             } else {
                 let mut ptr = null_mut();
-                infini!(infinirtMallocHost(&mut ptr, len));
+                infini!(infinirtMallocHost(&mut ptr, nbytes));
                 NonNull::new(ptr).unwrap().cast()
             },
-            len,
+            nbytes: nbytes,
         }
     }
 }
 
 impl Drop for HostBlob {
     fn drop(&mut self) {
-        if self.len == 0 {
+        if self.nbytes == 0 {
             return;
         }
 
@@ -348,10 +348,10 @@ impl Deref for HostBlob {
     type Target = [u8];
     #[inline]
     fn deref(&self) -> &Self::Target {
-        if self.len == 0 {
+        if self.nbytes == 0 {
             &[]
         } else {
-            unsafe { from_raw_parts(self.ptr.as_ptr(), self.len) }
+            unsafe { from_raw_parts(self.ptr.as_ptr(), self.nbytes) }
         }
     }
 }
@@ -359,10 +359,10 @@ impl Deref for HostBlob {
 impl DerefMut for HostBlob {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        if self.len == 0 {
+        if self.nbytes == 0 {
             &mut []
         } else {
-            unsafe { from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+            unsafe { from_raw_parts_mut(self.ptr.as_ptr(), self.nbytes) }
         }
     }
 }

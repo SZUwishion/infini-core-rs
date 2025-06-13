@@ -16,6 +16,16 @@ pub struct Device {
 }
 
 impl Device {
+    pub fn new(ty: DeviceType, id: i32) -> Self {
+        Self {
+            ty: match ty {
+                DeviceType::CPU => infiniDevice_t::INFINI_DEVICE_CPU,
+                DeviceType::CUDA => infiniDevice_t::INFINI_DEVICE_NVIDIA,
+            },
+            id,
+        }
+    }
+
     pub fn default() -> Self {
         Self {
             ty: infiniDevice_t::INFINI_DEVICE_CPU,
